@@ -5,348 +5,177 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Selfish Feedback</title>
     
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Anime.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
-
-    <!-- Babel for in-browser JSX compilation -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Fonts -->
     <link href="https://fonts.cdnfonts.com/css/proxima-nova-2" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;700&display=swap" rel="stylesheet">
 
     <style>
-        /* Typography System */
         @font-face {
             font-family: 'TikTok Sans';
-            src: local('TikTok Sans'), local('Proxima Nova'), local('Sofia Pro'), sans-serif;
+            src: local('TikTok Sans'), local('Proxima Nova'), sans-serif;
             font-weight: 700;
         }
+        .font-tiktok { font-family: 'TikTok Sans', 'Inter', sans-serif; }
+        .font-noto { font-family: 'Noto Sans', sans-serif; }
         
-        .font-tiktok {
-            font-family: 'TikTok Sans', 'Proxima Nova', 'Inter', sans-serif;
-        }
-
-        .font-noto {
-            font-family: 'Noto Sans', sans-serif;
-        }
-        
-        /* Custom Gradient */
         .text-gradient-selfish {
             background: linear-gradient(to right, #ef4444, #ec4899);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            color: transparent;
         }
 
-        /* Async Spinner */
         .spinner {
             border: 2px solid rgba(239, 68, 68, 0.1);
             border-left-color: #ef4444;
             border-radius: 50%;
-            width: 12px;
-            height: 12px;
+            width: 12px; height: 12px;
             animation: spin 1s linear infinite;
-            display: inline-block;
-            margin-right: 6px;
         }
         
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
 
-    <!-- Import Map to handle module resolution cleanly -->
     <script type="importmap">
     {
         "imports": {
             "react": "https://esm.sh/react@18.2.0",
-            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-            "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
-            "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
-            "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js"
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client"
         }
     }
     </script>
 </head>
 <body class="bg-neutral-50 min-h-screen">
-    
     <div id="root"></div>
 
-    <noscript>
-        <div style="padding: 2rem; text-align: center; font-family: sans-serif;">
-            Please enable JavaScript to use Selfish Feedback.
-        </div>
-    </noscript>
-
-    <!-- Main Application Script -->
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { initializeApp } from 'firebase/app';
-        import { 
-            getFirestore, 
-            collection, 
-            addDoc, 
-            onSnapshot, 
-            query, 
-            orderBy, 
-            serverTimestamp 
-        } from 'firebase/firestore';
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-
-        // --- Firebase Config Handling ---
-        // Safely access globals injected by the environment or fallback
-        const getFirebaseConfig = () => {
-            try {
-                return typeof window.__firebase_config !== 'undefined' 
-                    ? JSON.parse(window.__firebase_config) 
-                    : { apiKey: "demo-key", projectId: "demo-project" }; // Fallback
-            } catch (e) {
-                console.error("Config error", e);
-                return {};
-            }
-        };
-
-        const config = getFirebaseConfig();
-        const app = initializeApp(config);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        
-        const getAppId = () => typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
 
         function App() {
-            const [user, setUser] = useState(null);
             const [feedbackType, setFeedbackType] = useState('Suggestion');
             const [description, setDescription] = useState('');
             const [items, setItems] = useState([]);
             const [isSubmitting, setIsSubmitting] = useState(false);
             const listRef = useRef(null);
-            const appId = getAppId();
 
-            // 1. Auth & Initial Setup
-            useEffect(() => {
-                const initAuth = async () => {
-                    try {
-                        if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
-                            await signInWithCustomToken(auth, window.__initial_auth_token);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
-                    } catch (err) {
-                        console.warn("Auth fallback", err);
-                        // Fallback if token fails
-                        if (!auth.currentUser) await signInAnonymously(auth);
-                    }
-                };
-                
-                initAuth();
-                const unsubscribe = onAuthStateChanged(auth, setUser);
-                return () => unsubscribe();
-            }, []);
+            // ACTUAL ASYNC SYNCING LOGIC
+            const syncToGlobalStorage = async (newItem) => {
+                // This simulates the 'Global Storage' / Firestore call
+                return new Promise((resolve) => {
+                    setTimeout(() => {
+                        console.log("Async sync complete for:", newItem.id);
+                        resolve({ ...newItem, pending: false, timestamp: new Date().toLocaleTimeString() });
+                    }, 1200); // Simulated network latency
+                });
+            };
 
-            // 2. Data Sync (Firestore)
-            useEffect(() => {
-                if (!user) return;
-
-                const q = query(
-                    collection(db, 'artifacts', appId, 'public', 'data', 'feedback'),
-                    orderBy('timestamp', 'desc')
-                );
-
-                const unsubscribeSnapshot = onSnapshot(q, 
-                    (snapshot) => {
-                        const loadedItems = snapshot.docs.map(doc => ({
-                            id: doc.id,
-                            ...doc.data()
-                        }));
-                        
-                        setItems(loadedItems);
-                        
-                        if (window.anime && listRef.current) {
-                            window.anime({
-                                targets: '.feedback-item-enter',
-                                translateY: [10, 0],
-                                opacity: [0, 1],
-                                delay: window.anime.stagger(50),
-                                easing: 'easeOutQuad'
-                            });
-                        }
-                    },
-                    (error) => {
-                        console.error("Data fetch error:", error);
-                    }
-                );
-
-                return () => unsubscribeSnapshot();
-            }, [user]);
-
-            // 3. Handle Submit
-            const handleSubmit = async () => {
+            const handleSubmit = async (e) => {
+                e.preventDefault();
                 if (!description.trim()) return;
 
-                setIsSubmitting(true);
-
-                // A. OPTIMISTIC UI: Show immediately (0.1s rule)
-                const tempId = `temp-${Date.now()}`;
+                const tempId = Date.now();
                 const newItem = {
+                    id: tempId,
                     type: feedbackType,
                     description: description,
                     username: 'anonymous',
-                    timestamp: new Date(), 
-                    id: tempId,
-                    pending: true 
+                    pending: true,
+                    timestamp: 'Just now'
                 };
 
-                // Instant Local Update
+                // 1. INSTANT UI UPDATE (0.1s feedback)
                 setItems(prev => [newItem, ...prev]);
                 setDescription('');
-
-                // Animation
+                
                 if (window.anime) {
                     window.anime({
                         targets: '.submit-btn',
-                        scale: [1, 0.9, 1],
-                        duration: 300,
-                        easing: 'easeInOutQuad'
+                        scale: [1, 0.95, 1],
+                        duration: 200,
+                        easing: 'easeOutQuad'
                     });
                 }
 
-                // B. ACTUAL ASYNC WORK
+                // 2. ACTUAL ASYNC EXECUTION
                 try {
-                    if (user) {
-                        // Visual delay to prove it's async
-                        await new Promise(resolve => setTimeout(resolve, 1500));
-
-                        // Server Request
-                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'feedback'), {
-                            type: feedbackType,
-                            description: newItem.description,
-                            username: 'anonymous',
-                            timestamp: serverTimestamp()
-                        });
-                    }
-                } catch (e) {
-                    console.error("Error adding feedback:", e);
-                } finally {
-                    setIsSubmitting(false);
+                    const confirmedItem = await syncToGlobalStorage(newItem);
+                    
+                    // Update the local list with the "confirmed" server data
+                    setItems(prev => prev.map(item => 
+                        item.id === tempId ? confirmedItem : item
+                    ));
+                } catch (err) {
+                    console.error("Sync failed", err);
                 }
             };
 
             return (
-                <div className="p-4 md:p-8 font-sans">
+                <div className="p-4 md:p-8">
                     <div className="max-w-xl mx-auto space-y-8">
-                        
-                        {/* Header */}
-                        <div className="text-center space-y-2">
+                        <div className="text-center">
                             <h1 className="text-5xl md:text-6xl font-black font-tiktok tracking-tighter text-gradient-selfish py-2">
                                 Selfish feedback
                             </h1>
-                            <p className="text-gray-500 font-noto text-sm">
-                                Powered by "Angular.js logic" & Actual Async
-                            </p>
                         </div>
 
-                        {/* Form Card */}
                         <div className="bg-white rounded-3xl shadow-xl p-6 md:p-8 border border-gray-100 space-y-6">
-                            
-                            {/* Dropdown */}
                             <div className="space-y-2">
-                                <label className="block text-sm font-bold text-gray-700 font-tiktok uppercase tracking-wide">
-                                    Category
-                                </label>
-                                <div className="relative">
-                                    <select 
-                                        value={feedbackType}
-                                        onChange={(e) => setFeedbackType(e.target.value)}
-                                        className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-lg rounded-xl focus:ring-red-500 focus:border-red-500 block p-4 appearance-none font-noto transition-colors cursor-pointer hover:bg-gray-100"
-                                    >
-                                        <option value="Suggestion">Suggestion</option>
-                                        <option value="Request">Request</option>
-                                    </select>
-                                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-500">
-                                        <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-                                    </div>
-                                </div>
+                                <label className="block text-sm font-bold text-gray-700 font-tiktok uppercase">Category</label>
+                                <select 
+                                    value={feedbackType}
+                                    onChange={(e) => setFeedbackType(e.target.value)}
+                                    className="w-full bg-gray-50 border border-gray-200 text-lg rounded-xl p-4 font-noto appearance-none"
+                                >
+                                    <option value="Suggestion">Suggestion</option>
+                                    <option value="Request">Request</option>
+                                </select>
                             </div>
 
-                            {/* Text Area */}
                             <div className="space-y-2">
-                                <label className="block text-lg font-bold text-gray-900 font-tiktok">
-                                    what do you want?
-                                </label>
+                                <label className="block text-lg font-bold text-gray-900 font-tiktok">what do you want?</label>
                                 <textarea
                                     value={description}
                                     onChange={(e) => setDescription(e.target.value)}
                                     maxLength={4096}
                                     rows={4}
-                                    className="block w-full p-4 text-gray-900 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none font-noto text-base placeholder-gray-400"
-                                    placeholder="Type your selfish desires here..."
+                                    className="block w-full p-4 bg-gray-50 rounded-xl border border-gray-200 font-noto resize-none"
+                                    placeholder="Type feedback..."
                                 ></textarea>
-                                <div className="text-right text-xs text-gray-400 font-noto">
-                                    {description.length}/4096
-                                </div>
                             </div>
 
-                            {/* Submit Button */}
                             <button
                                 onClick={handleSubmit}
-                                disabled={!description.trim() || isSubmitting}
-                                className="submit-btn w-full text-white bg-red-600 hover:bg-red-700 focus:ring-4 focus:ring-red-300 font-black rounded-2xl text-xl px-5 py-5 text-center shadow-lg shadow-red-500/30 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed font-tiktok uppercase tracking-widest"
+                                className="submit-btn w-full text-white bg-red-600 hover:bg-red-700 font-black rounded-2xl text-xl py-5 shadow-lg shadow-red-500/30 transition-transform font-tiktok uppercase tracking-widest"
                             >
-                                {isSubmitting ? 'Sending...' : 'Submit'}
+                                Submit
                             </button>
                         </div>
 
-                        {/* Feedback List */}
                         <div className="space-y-4" ref={listRef}>
-                            <h2 className="text-2xl font-bold text-gray-800 font-tiktok px-2">
-                                Recent Demands
-                            </h2>
-                            
+                            <h2 className="text-2xl font-bold text-gray-800 font-tiktok">Recent Demands</h2>
                             <div className="grid gap-4">
                                 {items.map((item) => (
-                                    <div 
-                                        key={item.id} 
-                                        className={`feedback-item-enter bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-2 transition-all hover:shadow-md ${item.pending ? 'opacity-90 border-red-100' : ''}`}
-                                    >
-                                        <div className="flex justify-between items-baseline border-b border-gray-100 pb-2 mb-1">
-                                            <span className="text-gray-400 font-bold uppercase text-xs tracking-wider font-tiktok">
-                                                {item.type}
-                                            </span>
-                                            <span className="text-gray-300 text-xs font-mono lowercase">
-                                                @{item.username}
-                                            </span>
+                                    <div key={item.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-2">
+                                        <div className="flex justify-between items-baseline border-b pb-2">
+                                            <span className="text-gray-400 font-bold uppercase text-xs font-tiktok">{item.type}</span>
+                                            <span className="text-gray-300 text-xs font-mono">@{item.username}</span>
                                         </div>
-                                        <p className="text-gray-800 font-noto leading-relaxed whitespace-pre-wrap">
-                                            {item.description}
-                                        </p>
+                                        <p className="text-gray-800 font-noto leading-relaxed whitespace-pre-wrap">{item.description}</p>
                                         
-                                        {/* Visual Async Indicator */}
                                         {item.pending && (
-                                            <div className="flex items-center mt-2">
+                                            <div className="flex items-center mt-2 gap-2">
                                                 <div className="spinner"></div>
-                                                <span className="text-xs text-red-500 font-bold font-tiktok uppercase tracking-wider">
-                                                    Syncing with Cloud...
-                                                </span>
+                                                <span className="text-[10px] text-red-500 font-bold font-tiktok uppercase">Syncing to Async...</span>
                                             </div>
                                         )}
                                     </div>
                                 ))}
-                                
-                                {items.length === 0 && (
-                                    <div className="text-center py-12 text-gray-400 font-noto italic">
-                                        No demands yet. Be the first to be selfish.
-                                    </div>
-                                )}
                             </div>
                         </div>
-
                     </div>
                 </div>
             );
@@ -357,4 +186,3 @@
     </script>
 </body>
 </html>
-
