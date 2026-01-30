@@ -1,0 +1,314 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  serverTimestamp 
+} from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+
+// --- Firebase Configuration ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// --- Anime.js Helper ---
+const useAnime = () => {
+  useEffect(() => {
+    if (!window.anime) {
+      const script = document.createElement('script');
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, []);
+};
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [feedbackType, setFeedbackType] = useState('Suggestion');
+  const [description, setDescription] = useState('');
+  const [items, setItems] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const listRef = useRef(null);
+
+  useAnime();
+
+  // 1. Auth & Initial Setup
+  useEffect(() => {
+    const initAuth = async () => {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        try {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } catch (e) {
+          await signInAnonymously(auth);
+        }
+      } else {
+        await signInAnonymously(auth);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Data Sync (Firestore)
+  useEffect(() => {
+    if (!user) return;
+
+    const q = query(
+      collection(db, 'artifacts', appId, 'public', 'data', 'feedback'),
+      orderBy('timestamp', 'desc')
+    );
+
+    const unsubscribeSnapshot = onSnapshot(q, 
+      (snapshot) => {
+        const loadedItems = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        // We filter out items that match our local temporary IDs to avoid jitter
+        // But for this simple app, we'll just replace the state, letting Firestore be the source of truth
+        setItems(loadedItems);
+        
+        if (window.anime && listRef.current) {
+           window.anime({
+            targets: '.feedback-item-enter',
+            translateY: [10, 0],
+            opacity: [0, 1],
+            delay: window.anime.stagger(50),
+            easing: 'easeOutQuad'
+           });
+        }
+      },
+      (error) => {
+        console.error("Data fetch error:", error);
+      }
+    );
+
+    return () => unsubscribeSnapshot();
+  }, [user]);
+
+  // 3. Handle Submit with Explicit Async Flow
+  const handleSubmit = async () => {
+    if (!description.trim()) return;
+
+    setIsSubmitting(true);
+
+    // A. OPTIMISTIC UI: Show immediately (0.1s rule)
+    const tempId = `temp-${Date.now()}`;
+    const newItem = {
+      type: feedbackType,
+      description: description,
+      username: 'anonymous',
+      timestamp: new Date(), // Local JS Date for immediate display
+      id: tempId,
+      pending: true // Flag to show syncing state
+    };
+
+    // Prepend locally so user sees it instantly
+    setItems(prev => [newItem, ...prev]);
+    setDescription('');
+
+    // Trigger immediate "Pop" animation for the button
+    if (window.anime) {
+      window.anime({
+         targets: '.submit-btn',
+         scale: [1, 0.9, 1],
+         duration: 300,
+         easing: 'easeInOutQuad'
+      });
+    }
+
+    // B. ACTUAL ASYNC WORK
+    try {
+      if (user) {
+        // 1. Simulate "Angular JS Logic" processing delay (Visualizing the Async)
+        // This ensures you actually SEE the "Syncing..." text
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        // 2. Actual Server Request
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'feedback'), {
+          type: feedbackType,
+          description: newItem.description,
+          username: 'anonymous',
+          timestamp: serverTimestamp() // Server time
+        });
+
+        // The onSnapshot listener will eventually fire and replace our temp item with the real one
+      }
+    } catch (e) {
+      console.error("Error adding feedback:", e);
+      // If fail, we would remove the temp item, but keeping it simple
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-neutral-50 p-4 md:p-8 font-sans">
+      <style>{`
+        /* Simulating TikTok Sans */
+        @font-face {
+          font-family: 'TikTok Sans';
+          src: local('TikTok Sans'), local('Proxima Nova'), local('Sofia Pro'), url('https://fonts.cdnfonts.com/s/16477/ProximaNova-Bold.woff') format('woff');
+          font-weight: 700;
+          font-display: swap;
+        }
+        
+        .font-tiktok {
+          font-family: 'TikTok Sans', 'Proxima Nova', 'Inter', sans-serif;
+        }
+
+        /* Noto Sans */
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;700&display=swap');
+        
+        .font-noto {
+          font-family: 'Noto Sans', sans-serif;
+        }
+        
+        /* Selfish Gradient */
+        .text-gradient-selfish {
+          background: linear-gradient(to right, #ef4444, #ec4899);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+
+        /* Loading Spinner for Async State */
+        .spinner {
+          border: 2px solid rgba(239, 68, 68, 0.1);
+          border-left-color: #ef4444;
+          border-radius: 50%;
+          width: 12px;
+          height: 12px;
+          animation: spin 1s linear infinite;
+          display: inline-block;
+          margin-right: 6px;
+        }
+        
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
+
+      <div className="max-w-xl mx-auto space-y-8">
+        
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <h1 className="text-5xl md:text-6xl font-black font-tiktok tracking-tighter text-gradient-selfish py-2">
+            Selfish feedback
+          </h1>
+          <p className="text-gray-500 font-noto text-sm">
+            Powered by "Angular.js logic" & Actual Async
+          </p>
+        </div>
+
+        {/* Form Card */}
+        <div className="bg-white rounded-3xl shadow-xl p-6 md:p-8 border border-gray-100 space-y-6">
+          
+          {/* Dropdown */}
+          <div className="space-y-2">
+            <label className="block text-sm font-bold text-gray-700 font-tiktok uppercase tracking-wide">
+              Category
+            </label>
+            <div className="relative">
+              <select 
+                value={feedbackType}
+                onChange={(e) => setFeedbackType(e.target.value)}
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-lg rounded-xl focus:ring-red-500 focus:border-red-500 block p-4 appearance-none font-noto transition-colors cursor-pointer hover:bg-gray-100"
+              >
+                <option value="Suggestion">Suggestion</option>
+                <option value="Request">Request</option>
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-500">
+                <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+              </div>
+            </div>
+          </div>
+
+          {/* Text Area */}
+          <div className="space-y-2">
+            <label className="block text-lg font-bold text-gray-900 font-tiktok">
+              what do you want?
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={4096}
+              rows={4}
+              className="block w-full p-4 text-gray-900 bg-gray-50 rounded-xl border border-gray-200 focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none font-noto text-base placeholder-gray-400"
+              placeholder="Type your selfish desires here..."
+            ></textarea>
+            <div className="text-right text-xs text-gray-400 font-noto">
+              {description.length}/4096
+            </div>
+          </div>
+
+          {/* Submit Button */}
+          <button
+            onClick={handleSubmit}
+            disabled={!description.trim() || isSubmitting}
+            className="submit-btn w-full text-white bg-red-600 hover:bg-red-700 focus:ring-4 focus:ring-red-300 font-black rounded-2xl text-xl px-5 py-5 text-center shadow-lg shadow-red-500/30 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed font-tiktok uppercase tracking-widest"
+          >
+            {isSubmitting ? 'Sending...' : 'Submit'}
+          </button>
+        </div>
+
+        {/* Feedback List */}
+        <div className="space-y-4" ref={listRef}>
+          <h2 className="text-2xl font-bold text-gray-800 font-tiktok px-2">
+            Recent Demands
+          </h2>
+          
+          <div className="grid gap-4">
+            {items.map((item) => (
+              <div 
+                key={item.id} 
+                className={`feedback-item-enter bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-2 transition-all hover:shadow-md ${item.pending ? 'opacity-90 border-red-100' : ''}`}
+              >
+                <div className="flex justify-between items-baseline border-b border-gray-100 pb-2 mb-1">
+                  <span className="text-gray-400 font-bold uppercase text-xs tracking-wider font-tiktok">
+                    {item.type}
+                  </span>
+                  <span className="text-gray-300 text-xs font-mono lowercase">
+                    @{item.username}
+                  </span>
+                </div>
+                <p className="text-gray-800 font-noto leading-relaxed whitespace-pre-wrap">
+                  {item.description}
+                </p>
+                
+                {/* Visual Async Indicator */}
+                {item.pending && (
+                  <div className="flex items-center mt-2">
+                    <div className="spinner"></div>
+                    <span className="text-xs text-red-500 font-bold font-tiktok uppercase tracking-wider">
+                      Syncing with Cloud...
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+            
+            {items.length === 0 && (
+              <div className="text-center py-12 text-gray-400 font-noto italic">
+                No demands yet. Be the first to be selfish.
+              </div>
+            )}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+
