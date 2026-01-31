@@ -1,0 +1,1 @@
+7.0.31101.64.arm64.mediatek.samsung.mobile.pc.gpu=optional.spec.all.1.0.0
